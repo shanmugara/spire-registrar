@@ -1,0 +1,23 @@
+apiVersion: v2
+name: spire-registrar
+description: >
+  A Kubernetes controller that automates SPIFFE/SPIRE registration entry
+  lifecycle for ServiceAccounts. Annotate a ServiceAccount with
+  omegahome.net/managed-spire=true to have the controller register a SPIFFE ID
+  with your SPIRE server and manage its lifecycle automatically.
+type: application
+# https://semver.org/
+version: 1.0.11
+appVersion: "1.0.11"
+keywords:
+  - spiffe
+  - spire
+  - security
+  - identity
+  - zero-trust
+home: https://github.com/shanmugara/spire-registrar
+sources:
+  - https://github.com/shanmugara/spire-registrar
+maintainers:
+  - name: shanmugara
+    email: psraj@outlook.com

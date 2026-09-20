@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"time"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -65,14 +66,14 @@ func (r *ServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		err := r.DeleteEntry(ctx, sa)
 		if err != nil {
 			logger.Error(err, "Failed to delete SPIRE entry for ServiceAccount during cleanup", "name", sa.Name)
-			return ctrl.Result{RequeueAfter: 15}, err
+			return ctrl.Result{RequeueAfter: 15 * time.Second}, err
 		}
 
 		if controllerutil.ContainsFinalizer(sa, SpireFinalizer) {
 			controllerutil.RemoveFinalizer(sa, SpireFinalizer)
 			if err := r.Update(ctx, sa); err != nil {
 				logger.Error(err, "Failed to remove finalizer", "name", sa.Name)
-				return ctrl.Result{RequeueAfter: 15}, err
+				return ctrl.Result{RequeueAfter: 15 * time.Second}, err
 			} else {
 				logger.Info("Removed finalizer", "name", sa.Name)
 			}
@@ -89,20 +90,20 @@ func (r *ServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		entryID, err := r.CreateEntry(ctx, sa)
 		if err != nil {
 			logger.Error(err, "Failed to create SPIRE entry for ServiceAccount", "name", sa.Name)
-			return ctrl.Result{RequeueAfter: 15}, err
+			return ctrl.Result{RequeueAfter: 15 * time.Second}, err
 		}
 		// Update the ServiceAccount with the SVID entry ID
 		sa.Annotations[SVIDEntryIDAnnotation] = string(*entryID)
 		if err := r.Update(ctx, sa); err != nil {
 			logger.Error(err, "Failed to update ServiceAccount with SVID entryID", "name", sa.Name)
-			return ctrl.Result{RequeueAfter: 15}, err
+			return ctrl.Result{RequeueAfter: 15 * time.Second}, err
 		}
 		// Add finalizer to ensure cleanup of SPIRE entry when the ServiceAccount is deleted
 		if !controllerutil.ContainsFinalizer(sa, SpireFinalizer) {
 			controllerutil.AddFinalizer(sa, SpireFinalizer)
 			if err := r.Update(ctx, sa); err != nil {
 				logger.Error(err, "Failed to add finalizer ", "name", sa.Name)
-				return ctrl.Result{RequeueAfter: 15}, err
+				return ctrl.Result{RequeueAfter: 15 * time.Second}, err
 			}
 		}
 	}
