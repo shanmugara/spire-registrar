@@ -6,9 +6,10 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"net/http"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/json"
-	"net/http"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/yaml"
@@ -24,11 +25,11 @@ const (
 )
 
 type SpireEntry struct {
-	TrustDomain    string `json:"trustDomain,omitempty"`
-	ServiceAccount string `json:"serviceAccount,omitempty"`
-	Namespace      string `json:"namespace,omitempty"`
-	Cluster        string `json:"cluster,omitempty"`
-	KubeConfig     string `json:"kubeConfig,omitempty"`
+	TrustDomain    trustDomain `json:"trustDomain,omitempty"`
+	ServiceAccount string      `json:"serviceAccount,omitempty"`
+	Namespace      string      `json:"namespace,omitempty"`
+	Cluster        clusterName `json:"cluster,omitempty"`
+	KubeConfig     string      `json:"kubeConfig,omitempty"`
 }
 
 type SpireEntryResponse struct {
@@ -37,6 +38,8 @@ type SpireEntryResponse struct {
 }
 
 type entryID string
+type clusterName string
+type trustDomain string
 
 type SpireAPI struct {
 	Server string `json:"server"` // SPIRE server URL
@@ -60,11 +63,28 @@ func (r *ServiceAccountReconciler) CreateEntry(ctx context.Context, sa *corev1.S
 		logger.Error(err, "Failed to get cluster info from ConfigMap", "namespace", ClusterInfoCmNamespace, "name", ClusterInfoCm)
 		return nil, err
 	}
-
-	clusterName := ClusterConfig["clusterName"]
-	if clusterName == nil {
+	cnStr, ok := ClusterConfig["clusterName"].(string)
+	if !ok {
 		logger.Error(fmt.Errorf("clusterName not found"), "Failed to find clusterName in ClusterConfiguration", "namespace", ClusterInfoCmNamespace, "name", ClusterInfoCm)
 		return nil, fmt.Errorf("missing clusterName in configmap")
+	}
+
+	cn := clusterName(cnStr)
+	if cn == "" {
+		logger.Error(fmt.Errorf("clusterName not found"), "Failed to find clusterName in ClusterConfiguration", "namespace", ClusterInfoCmNamespace, "name", ClusterInfoCm)
+		return nil, fmt.Errorf("missing clusterName in configmap")
+	}
+
+	// Extract the trust domain from the ClusterConfig
+	tdStr, ok := ClusterConfig["trustDomain"].(string)
+	if !ok {
+		logger.Error(fmt.Errorf("trust domain not found"), "Failed to find trust domain in ClusterConfiguration", "namespace", ClusterInfoCmNamespace, "name", ClusterInfoCm)
+		return nil, fmt.Errorf("missing trust domain in configmap")
+	}
+	td := trustDomain(tdStr)
+	if td == "" {
+		logger.Error(fmt.Errorf("trust domain not found"), "Failed to find trust domain in ClusterConfiguration", "namespace", ClusterInfoCmNamespace, "name", ClusterInfoCm)
+		return nil, fmt.Errorf("missing trust domain in configmap")
 	}
 
 	kubeConfigData, err := r.GetKubeConfig(ctx)
@@ -74,10 +94,10 @@ func (r *ServiceAccountReconciler) CreateEntry(ctx context.Context, sa *corev1.S
 
 	// Create the SpireEntry object based on the ServiceAccount and ConfigMap data
 	se := SpireEntry{
-		TrustDomain:    ClusterConfig["trustDomain"].(string),
+		TrustDomain:    td,
 		ServiceAccount: sa.Name,
 		Namespace:      sa.Namespace,
-		Cluster:        clusterName.(string),
+		Cluster:        cn,
 		KubeConfig:     kubeConfigData,
 	}
 
@@ -102,7 +122,7 @@ func (r *ServiceAccountReconciler) CreateEntry(ctx context.Context, sa *corev1.S
 	resp, err := http.Post(apiUrl+"/v1/entries/add", "application/json", bytes.NewBuffer(data))
 
 	if err != nil {
-		logger.Error(err, "Failed to send request to SPIRE server", "url", "response", apiUrl, resp.Status)
+		logger.Error(err, "Failed to send request to SPIRE server", "url", apiUrl)
 		return nil, err
 	}
 
@@ -140,11 +160,25 @@ func (r *ServiceAccountReconciler) DeleteEntry(ctx context.Context, sa *corev1.S
 		return err
 	}
 
+	cnStr, ok := ClusterConfig["clusterName"].(string)
+	if !ok || cnStr == "" {
+		logger.Error(fmt.Errorf("cluster name is empty"), "Failed to get cluster name from ConfigMap", "namespace", ClusterInfoCmNamespace, "name", ClusterInfoCm)
+		return fmt.Errorf("cluster name is empty")
+	}
+	cn := clusterName(cnStr)
+
+	tdStr, ok := ClusterConfig["trustDomain"].(string)
+	if !ok || tdStr == "" {
+		logger.Error(fmt.Errorf("trust domain is empty"), "Failed to get trust domain from ConfigMap", "namespace", ClusterInfoCmNamespace, "name", ClusterInfoCm)
+		return fmt.Errorf("trust domain is empty")
+	}
+	td := trustDomain(tdStr)
+
 	se := SpireEntry{
-		TrustDomain:    ClusterConfig["trustDomain"].(string),
+		TrustDomain:    td,
 		ServiceAccount: sa.Name,
 		Namespace:      sa.Namespace,
-		Cluster:        ClusterConfig["clusterName"].(string),
+		Cluster:        cn,
 		KubeConfig:     "", // Not needed for deletion
 	}
 
@@ -163,7 +197,7 @@ func (r *ServiceAccountReconciler) DeleteEntry(ctx context.Context, sa *corev1.S
 	}
 	resp, err := http.Post(apiUrl+"/v1/entries/delete", "application/json", bytes.NewBuffer(data))
 	if err != nil {
-		logger.Error(err, "Failed deleting entry. spire-api returned a non-200", "url", apiUrl, "response", resp.Status)
+		logger.Error(err, "Failed deleting entry. spire-api request failed", "url", apiUrl)
 		return err
 	}
 
