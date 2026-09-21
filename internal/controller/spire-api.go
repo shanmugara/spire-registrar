@@ -3,7 +3,6 @@ package controller
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,6 +21,7 @@ const (
 	APIServer                  = "omegaspire01.omegaworld.net"
 	APIPort                    = 8080
 	AdminKubeConfigSecret      = "admin-kubeconfig" // Name of the ConfigMap containing the admin kubeconfig
+	SpireAgentServiceAccount   = "spire-agent"
 )
 
 type SpireEntry struct {
@@ -58,6 +58,7 @@ func (r *ServiceAccountReconciler) CreateEntry(ctx context.Context, sa *corev1.S
 	logger := log.FromContext(ctx)
 	logger.Info("Creating SPIRE entry for ServiceAccount", "name", sa.Name, "namespace", sa.Namespace)
 
+	kubeConfigData := ""
 	ClusterConfig, err := r.GetClusterInfo(ctx)
 	if err != nil {
 		logger.Error(err, "Failed to get cluster info from ConfigMap", "namespace", ClusterInfoCmNamespace, "name", ClusterInfoCm)
@@ -87,9 +88,18 @@ func (r *ServiceAccountReconciler) CreateEntry(ctx context.Context, sa *corev1.S
 		return nil, fmt.Errorf("missing trust domain in configmap")
 	}
 
-	kubeConfigData, err := r.GetKubeConfig(ctx)
-	if err != nil {
-		logger.Error(err, "Failed to get kubeconfig. defaulting to empty string")
+	// If we register the agent we need to include its kubeconfig data
+	if sa.Name == SpireAgentServiceAccount {
+		if err := r.MakeKubeConfig(ctx, r.Client); err != nil {
+			logger.Error(err, "Failed to create kubeconfig")
+			return nil, err
+		}
+
+		kubeConfigData, err = r.GetKubeConfig(ctx)
+		if err != nil {
+			logger.Error(err, "Failed to get kubeconfig. retrying")
+			return nil, err
+		}
 	}
 
 	// Create the SpireEntry object based on the ServiceAccount and ConfigMap data
@@ -244,19 +254,24 @@ func (r *ServiceAccountReconciler) GetClusterInfo(ctx context.Context) (map[stri
 func (r *ServiceAccountReconciler) GetKubeConfig(ctx context.Context) (string, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Getting kubeconfig from Secret")
+	ns, err := GetOwnNamespace()
+	if err != nil {
+		logger.Error(err, "Failed to get own namespace")
+		return "", err
+	}
 	kcSecret := &corev1.Secret{}
 
 	var kubeConfig string
-	if err := r.Get(ctx, client.ObjectKey{Namespace: "kube-system", Name: AdminKubeConfigSecret}, kcSecret); err != nil {
-		logger.Error(err, "Failed to get Secret for kubeconfig", "namespace", "kube-system", "name", AdminKubeConfigSecret)
+	if err := r.Get(ctx, client.ObjectKey{Namespace: ns, Name: SpireKubeConfigDataSecret}, kcSecret); err != nil {
+		logger.Error(err, "Failed to get Secret for kubeconfig", "namespace", ns, "name", SpireKubeConfigDataSecret)
 		return "", err
 	}
 
-	if kcSecret.Data == nil || len(kcSecret.Data) == 0 {
-		logger.Error(fmt.Errorf("missing kubeconfig data"), "Failed to find kubeconfig in Secret", "namespace", "kube-system", "name", AdminKubeConfigSecret)
-		return "", fmt.Errorf("missing kubeconfig data in Secret %s/%s", "kube-system", AdminKubeConfigSecret)
+	if len(kcSecret.Data) == 0 {
+		logger.Error(fmt.Errorf("missing kubeconfig data"), "Failed to find kubeconfig in Secret", "namespace", ns, "name", SpireKubeConfigDataSecret)
+		return "", fmt.Errorf("missing kubeconfig data in Secret %s/%s", ns, SpireKubeConfigDataSecret)
 	} else {
-		kubeConfig = base64.StdEncoding.EncodeToString(kcSecret.Data["kubeconfig"])
+		kubeConfig = string(kcSecret.Data["kubeconfig"])
 		logger.Info("Successfully retrieved kubeconfig")
 		return kubeConfig, nil
 	}
