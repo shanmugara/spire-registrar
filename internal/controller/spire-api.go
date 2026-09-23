@@ -90,6 +90,25 @@ func (r *ServiceAccountReconciler) CreateEntry(ctx context.Context, sa *corev1.S
 
 	// If we register the agent we need to include its kubeconfig data
 	if sa.Name == SpireAgentServiceAccount {
+		logger.V(3).Info("Creating kubeconfig for SPIRE agent")
+		logger.V(3).Info("Check if spire-server-kubeconfig certificate exists")
+
+		kkCert, err := r.GetKubeConfigCert(ctx)
+		if err != nil {
+			logger.Info("kubeconfig certificate not found, creating a new one")
+			if err := r.CreateKubeConfigCert(ctx); err != nil {
+				logger.Error(err, "Failed to create kubeconfig certificate")
+				return nil, err
+			}
+			return nil, fmt.Errorf("kubeconfig certificate was just created, waiting for it to become ready")
+		}
+
+		if !IsCertificateReady(kkCert) {
+			err := fmt.Errorf("kubeconfig certificate not ready")
+			logger.Error(err, "SPIRE agent kubeconfig certificate is not ready")
+			return nil, err
+		}
+
 		if err := r.MakeKubeConfig(ctx, r.Client); err != nil {
 			logger.Error(err, "Failed to create kubeconfig")
 			return nil, err

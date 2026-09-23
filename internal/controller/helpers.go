@@ -8,6 +8,8 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/clientcmd"
@@ -20,6 +22,8 @@ const (
 	SpireKubeConfigSecret     = "spire-server-kubeconfig"
 	SpireKubeConfigDataSecret = "spire-server-kubeconfig-data"
 	SpireUserName             = "spire-server"
+	SpireKubeConfigAnnotation = "omegahome.net/spire-kubeconfig"
+	SpireKubeConfigLabel      = "omegahome.net/cluster-name"
 )
 
 // GetOwnNamespace returns the namespace the controller is running in.
@@ -124,4 +128,65 @@ func (r *ServiceAccountReconciler) WriteSerializedKubeConfig(ctx context.Context
 	}
 
 	return nil
+}
+
+func (r *ServiceAccountReconciler) CreateKubeConfigCert(ctx context.Context) error {
+	ns, err := GetOwnNamespace()
+	if err != nil {
+		return fmt.Errorf("failed to get namespace: %w", err)
+	}
+
+	clusterInfo, err := r.GetClusterInfo(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get cluster info: %w", err)
+	}
+
+	// cert-mnager cert request
+	kkCert := certmanagerv1.Certificate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      SpireKubeConfigSecret,
+			Namespace: ns,
+		},
+		Spec: certmanagerv1.CertificateSpec{
+			SecretName: SpireKubeConfigSecret,
+			// Add other necessary fields for the certificate spec
+			SecretTemplate: &certmanagerv1.CertificateSecretTemplate{
+				Annotations: map[string]string{
+					SpireKubeConfigAnnotation: "true",
+				},
+				Labels: map[string]string{
+					SpireKubeConfigLabel: clusterInfo["clusterName"].(string),
+				},
+			},
+		},
+	}
+	if err := r.Client.Create(ctx, &kkCert); err != nil {
+		return fmt.Errorf("failed to create Certificate %s/%s: %w", ns, SpireKubeConfigSecret, err)
+	}
+
+	return nil
+}
+
+func (r *ServiceAccountReconciler) GetKubeConfigCert(ctx context.Context) (*certmanagerv1.Certificate, error) {
+	ns, err := GetOwnNamespace()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get namespace: %w", err)
+	}
+
+	kkCert := &certmanagerv1.Certificate{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: ns, Name: SpireKubeConfigSecret}, kkCert); err != nil {
+		return nil, fmt.Errorf("failed to get Certificate %s/%s: %w", ns, SpireKubeConfigSecret, err)
+	}
+
+	return kkCert, nil
+}
+
+// IsCertificateReady reports whether cert's Ready condition is set to True.
+func IsCertificateReady(cert *certmanagerv1.Certificate) bool {
+	for _, cond := range cert.Status.Conditions {
+		if cond.Type == certmanagerv1.CertificateConditionReady {
+			return cond.Status == cmmeta.ConditionTrue
+		}
+	}
+	return false
 }
