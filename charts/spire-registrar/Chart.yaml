@@ -7,8 +7,8 @@ description: >
   with your SPIRE server and manage its lifecycle automatically.
 type: application
 # https://semver.org/
-version: 2.0.0
-appVersion: "2.0.0"
+version: 2.0.1
+appVersion: "2.0.1"
 keywords:
   - spiffe
   - spire
