@@ -1,5 +1,5 @@
 apiVersion: v2
-name: spire-registrar
+name: spire-registrar-chart
 description: >
   A Kubernetes controller that automates SPIFFE/SPIRE registration entry
   lifecycle for ServiceAccounts. Annotate a ServiceAccount with
@@ -7,8 +7,8 @@ description: >
   with your SPIRE server and manage its lifecycle automatically.
 type: application
 # https://semver.org/
-version: 1.0.11
-appVersion: "1.0.11"
+version: 2.0.0
+appVersion: "2.0.0"
 keywords:
   - spiffe
   - spire

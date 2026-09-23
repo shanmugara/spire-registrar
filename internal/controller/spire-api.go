@@ -56,7 +56,7 @@ func (s *SpireAPI) GetServerURL() string {
 
 func (r *ServiceAccountReconciler) CreateEntry(ctx context.Context, sa *corev1.ServiceAccount) (*entryID, error) {
 	logger := log.FromContext(ctx)
-	logger.Info("Creating SPIRE entry for ServiceAccount", "name", sa.Name, "namespace", sa.Namespace)
+	logger.V(3).Info("Creating SPIRE entry for ServiceAccount", "name", sa.Name, "namespace", sa.Namespace)
 
 	kubeConfigData := ""
 	ClusterConfig, err := r.GetClusterInfo(ctx)
@@ -117,8 +117,8 @@ func (r *ServiceAccountReconciler) CreateEntry(ctx context.Context, sa *corev1.S
 	}
 	apiUrl := api.GetServerURL()
 
-	logger.Info("SPIRE API URL", "url", apiUrl)
-	logger.Info("Creating SPIRE Entry", "entry", se)
+	logger.V(3).Info("SPIRE API URL", "url", apiUrl)
+	logger.V(3).Info("Creating SPIRE Entry", "entry", se)
 
 	// Marshal the SpireEntry to JSON
 	data, err := json.Marshal(se)
@@ -127,7 +127,7 @@ func (r *ServiceAccountReconciler) CreateEntry(ctx context.Context, sa *corev1.S
 		return nil, err
 	}
 	// Send the request to the SPIRE server to create the entry
-	logger.Info("Sending request to SPIRE server", "url", apiUrl, "data", string(data))
+	logger.V(3).Info("Sending request to SPIRE server", "url", apiUrl, "data", string(data))
 
 	resp, err := http.Post(apiUrl+"/v1/entries/add", "application/json", bytes.NewBuffer(data))
 
