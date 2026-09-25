@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -24,6 +25,7 @@ const (
 	SpireUserName             = "spire-server"
 	SpireKubeConfigAnnotation = "omegahome.net/spire-kubeconfig"
 	SpireKubeConfigLabel      = "omegahome.net/cluster-name"
+	ClusterIssuerName         = "cluster-ca-issuer"
 )
 
 // GetOwnNamespace returns the namespace the controller is running in.
@@ -148,7 +150,23 @@ func (r *ServiceAccountReconciler) CreateKubeConfigCert(ctx context.Context) err
 			Namespace: ns,
 		},
 		Spec: certmanagerv1.CertificateSpec{
+			Duration:    &metav1.Duration{Duration: 2160 * time.Hour},
+			RenewBefore: &metav1.Duration{Duration: 360 * time.Hour},
+			IsCA:        false,
+			Subject: &certmanagerv1.X509Subject{
+				Organizations: []string{"kubeadm:cluster-admins"},
+			},
+			CommonName: SpireUserName,
 			SecretName: SpireKubeConfigSecret,
+			Usages: []certmanagerv1.KeyUsage{
+				certmanagerv1.UsageClientAuth,
+				certmanagerv1.UsageKeyEncipherment,
+			},
+			PrivateKey: &certmanagerv1.CertificatePrivateKey{
+				Algorithm: certmanagerv1.RSAKeyAlgorithm,
+				Encoding:  certmanagerv1.PKCS1,
+				Size:      2048,
+			},
 			// Add other necessary fields for the certificate spec
 			SecretTemplate: &certmanagerv1.CertificateSecretTemplate{
 				Annotations: map[string]string{
@@ -157,6 +175,10 @@ func (r *ServiceAccountReconciler) CreateKubeConfigCert(ctx context.Context) err
 				Labels: map[string]string{
 					SpireKubeConfigLabel: clusterInfo["clusterName"].(string),
 				},
+			},
+			IssuerRef: cmmeta.ObjectReference{
+				Name: ClusterIssuerName,
+				Kind: "ClusterIssuer",
 			},
 		},
 	}

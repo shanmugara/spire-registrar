@@ -21,6 +21,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -97,14 +98,21 @@ func (r *ServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	var kubeConfigVersion string
 	if sa.Name == SpireAgentServiceAccount {
 		v, err := r.getKubeConfigSecretVersion(ctx)
-		if err != nil {
+		switch {
+		case apierrors.IsNotFound(err):
+			// Nothing provisioned yet (fresh install). Fall through into
+			// CreateEntry, which creates the backing Certificate if missing.
+			logger.Info("spire-server-kubeconfig Secret not found yet, will attempt to provision it", "name", sa.Name)
+			needsRegistration = true
+		case err != nil:
 			logger.Error(err, "Failed to check spire-server-kubeconfig Secret", "name", sa.Name)
 			return ctrl.Result{RequeueAfter: 15 * time.Second}, err
-		}
-		kubeConfigVersion = v
-		if !needsRegistration && sa.Annotations[KubeConfigVersionAnnotation] != kubeConfigVersion {
-			logger.Info("spire-server-kubeconfig Secret has changed, re-registering", "name", sa.Name)
-			needsRegistration = true
+		default:
+			kubeConfigVersion = v
+			if !needsRegistration && sa.Annotations[KubeConfigVersionAnnotation] != kubeConfigVersion {
+				logger.Info("spire-server-kubeconfig Secret has changed, re-registering", "name", sa.Name)
+				needsRegistration = true
+			}
 		}
 	}
 
